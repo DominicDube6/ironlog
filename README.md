@@ -2,18 +2,15 @@
 
 Webapp de suivi d'entraînement — full body 4x/semaine, suggestion de poids par double progression, rotation d'accessoires 4 semaines, gestion des pauses. Aucun tracking de poids corporel.
 
-Stack : Next.js (App Router) + Supabase (Postgres + Auth magic link) + Vercel.
+Stack : Next.js (App Router) + Supabase (Postgres) + Vercel. App personnelle, zéro login — l'app va direct au training, sur n'importe quel appareil.
 
 ## 1. Créer le projet Supabase (5 min, une seule fois)
 
 1. Va sur [supabase.com](https://supabase.com) → New project (le plan gratuit suffit largement).
 2. Une fois le projet créé, ouvre **SQL Editor** → colle le contenu de [`supabase/schema.sql`](supabase/schema.sql) → Run.
-3. Va dans **Project Settings → API** et copie :
+3. Va dans **Project Settings → API Keys** et copie :
    - `Project URL`
-   - `anon public` key
-4. Va dans **Authentication → URL Configuration** et ajoute comme *Redirect URL* (à faire une fois en local, et une fois de plus avec l'URL Vercel une fois déployé) :
-   - `http://localhost:3000/auth/confirm`
-   - `https://<ton-domaine-vercel>/auth/confirm`
+   - `Publishable key` (= `anon` key, safe côté client)
 
 ## 2. Configurer en local
 
@@ -28,37 +25,24 @@ npm install
 npm run dev
 ```
 
-Ouvre [http://localhost:3000](http://localhost:3000) — tu seras redirigé vers `/login`, entre ton courriel, ouvre le lien reçu depuis ton téléphone ou ton ordi.
+Ouvre [http://localhost:3000](http://localhost:3000) — direct au training, pas d'écran de connexion.
 
 ## 3. Déployer sur Vercel
 
-```bash
-npx vercel login
-npx vercel
-```
-
-Suis les prompts (lie le dossier à un nouveau projet Vercel). Une fois le projet créé sur Vercel, ajoute les deux variables d'environnement dans **Vercel → Project → Settings → Environment Variables** :
+Via l'import GitHub (vercel.com/new → GitHub → sélectionner le repo) : ajoute les deux variables d'environnement dans **Settings → Environments → Production** avant ou après le premier déploiement :
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-
-Puis redéploie :
-
-```bash
-npx vercel --prod
-```
-
-Ajoute l'URL `https://<ton-domaine>.vercel.app/auth/confirm` dans Supabase (étape 1.4) — sinon le lien magique va rediriger vers `localhost` en prod.
 
 **Sur ton téléphone** : ouvre l'URL Vercel dans Safari/Chrome → menu de partage → "Ajouter à l'écran d'accueil". L'app s'ouvre alors en plein écran, sans barre d'adresse.
 
 ## Structure
 
 - `lib/program.js` — programme A/B/C/D, rotation de blocs, algorithme `suggestNext` (double progression, deload après 3 séances de stagnation, reprise à 85% après 14j+ d'absence).
+- `lib/owner.js` — id fixe utilisé pour scoper toutes les lignes (pas d'auth réelle, app personnelle mono-utilisateur).
 - `components/` — `ExerciseCard`, `PauseManager`, `PlateBar`, `StickFigure`/`PatternIcon`.
-- `app/page.js` — écran principal, lit/écrit dans Supabase (`profile`, `exercise_history`).
-- `app/login`, `app/auth/confirm`, `proxy.js` — auth par lien magique (un seul utilisateur pour l'instant, mais scoping `user_id` déjà en place).
-- `supabase/schema.sql` — schéma + RLS (chaque user ne voit que ses propres données).
+- `app/page.js` — écran unique, lit/écrit dans Supabase (`profile`, `exercise_history`).
+- `supabase/schema.sql` — schéma + RLS ouvert (pas d'auth.uid(), la sécurité repose sur le fait que l'URL + la clé anon ne sont pas publiées).
 
 ## Pour que Claude connaisse ta progression
 
@@ -72,6 +56,6 @@ node scripts/report.mjs
 
 ## Notes
 
-- Zéro tracking de poids corporel, zéro onboarding — l'app va direct au training.
+- Zéro tracking de poids corporel, zéro onboarding, zéro login — l'app va direct au training.
 - Pictos "bonhomme allumette" en SVG inline, pas d'images externes.
-- Le déploiement Vercel `npx vercel login` ouvre une fenêtre de navigateur pour t'authentifier avec ton propre compte Vercel — Claude ne peut pas créer ce compte à ta place.
+- Pas d'auth réelle : n'importe qui connaissant l'URL Vercel exacte + la clé anon pourrait lire/écrire les données. Acceptable pour un tracker personnel sur une URL non annoncée ; à revisiter si l'app est un jour partagée.

@@ -5,6 +5,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "fs";
 import { PROGRAM } from "../lib/program.js";
+import { OWNER_ID } from "../lib/owner.js";
 
 function loadEnvLocal() {
   try {
@@ -41,6 +42,7 @@ for (const day of Object.values(PROGRAM)) {
 const { data: rows, error } = await supabase
   .from("exercise_history")
   .select("exercise_id, date, sets")
+  .eq("user_id", OWNER_ID)
   .order("date", { ascending: true });
 
 if (error) {

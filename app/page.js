@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { OWNER_ID } from "@/lib/owner";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { PauseManager } from "@/components/PauseManager";
 import { PROGRAM, DAY_KEYS, buildProgram, effectiveDays, getBlockIndex, todayISO } from "@/lib/program";
@@ -9,7 +10,6 @@ import { PROGRAM, DAY_KEYS, buildProgram, effectiveDays, getBlockIndex, todayISO
 export default function IronLog() {
   const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState(null);
   const [profile, setProfile] = useState(null);
   const [history, setHistory] = useState({});
   const [day, setDay] = useState("A");
@@ -19,21 +19,12 @@ export default function IronLog() {
 
   useEffect(() => {
     (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        window.location.href = "/login";
-        return;
-      }
-      setUserId(user.id);
-
-      let { data: p } = await supabase.from("profile").select("*").eq("user_id", user.id).maybeSingle();
+      let { data: p } = await supabase.from("profile").select("*").eq("user_id", OWNER_ID).maybeSingle();
 
       if (!p) {
         const { data: created, error } = await supabase
           .from("profile")
-          .insert({ user_id: user.id, start_date: todayISO(), paused_ranges: [] })
+          .insert({ user_id: OWNER_ID, start_date: todayISO(), paused_ranges: [] })
           .select()
           .single();
         if (error) {
@@ -47,7 +38,7 @@ export default function IronLog() {
       const { data: rows } = await supabase
         .from("exercise_history")
         .select("exercise_id, date, sets")
-        .eq("user_id", user.id)
+        .eq("user_id", OWNER_ID)
         .order("date", { ascending: true });
 
       const grouped = {};
@@ -65,7 +56,7 @@ export default function IronLog() {
     const { error } = await supabase
       .from("profile")
       .update({ start_date: p.startDate ?? p.start_date, paused_ranges: p.pausedRanges ?? p.paused_ranges })
-      .eq("user_id", userId);
+      .eq("user_id", OWNER_ID);
     setProfileError(error ? error.message : null);
   };
 
@@ -86,7 +77,7 @@ export default function IronLog() {
     async (exId, sets) => {
       const date = todayISO();
       const { error } = await supabase.from("exercise_history").insert({
-        user_id: userId,
+        user_id: OWNER_ID,
         exercise_id: exId,
         date,
         sets,
@@ -101,7 +92,7 @@ export default function IronLog() {
       }
       setTimeout(() => setToast(""), 2500);
     },
-    [supabase, userId]
+    [supabase]
   );
 
   if (loading) {
@@ -158,16 +149,6 @@ export default function IronLog() {
         {program[day].exercises.map((ex) => (
           <ExerciseCard key={ex.id} ex={ex} history={history} onSave={handleSaveExercise} />
         ))}
-
-        <button
-          onClick={async () => {
-            await supabase.auth.signOut();
-            window.location.href = "/login";
-          }}
-          style={{ background: "none", border: "none", color: "#6E6A63", fontSize: 12, marginTop: 20, padding: 0 }}
-        >
-          Déconnexion
-        </button>
       </div>
 
       {toast && (
