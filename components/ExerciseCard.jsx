@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { HelpCircle } from "lucide-react";
-import { PatternIcon, StickFigure } from "./StickFigure";
+import { PatternIcon } from "./StickFigure";
 import { PlateBar } from "./PlateBar";
 import { suggestNext, fmtDate } from "@/lib/program";
 
@@ -55,9 +55,24 @@ export function ExerciseCard({ ex, history, onSave }) {
       </div>
 
       {showHowTo && (
-        <div style={{ display: "flex", gap: 10, alignItems: "center", background: "#141210", border: "1px solid #2E2B27", borderRadius: 8, padding: "10px 12px", margin: "8px 0" }}>
-          <div style={{ flexShrink: 0 }}>
-            <StickFigure pattern={ex.pattern} />
+        <div style={{ background: "#141210", border: "1px solid #2E2B27", borderRadius: 8, padding: "10px 12px", margin: "8px 0" }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1, position: "relative" }}>
+              <img
+                src={`/exercises/${ex.id}-start.svg`}
+                alt={`${ex.name} — start position`}
+                style={{ width: "100%", aspectRatio: "1 / 1", display: "block" }}
+              />
+              <span style={{ position: "absolute", bottom: 4, left: 6, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase", color: "#6E6A63", fontWeight: 700 }}>Start</span>
+            </div>
+            <div style={{ flex: 1, position: "relative" }}>
+              <img
+                src={`/exercises/${ex.id}-end.svg`}
+                alt={`${ex.name} — end position`}
+                style={{ width: "100%", aspectRatio: "1 / 1", display: "block" }}
+              />
+              <span style={{ position: "absolute", bottom: 4, left: 6, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase", color: "#6E6A63", fontWeight: 700 }}>End</span>
+            </div>
           </div>
           <div style={{ fontSize: 13, color: "#B5B0A8" }}>{ex.desc}</div>
         </div>
