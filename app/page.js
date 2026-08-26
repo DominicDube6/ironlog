@@ -5,8 +5,9 @@ import { createClient } from "@/lib/supabase/client";
 import { OWNER_ID } from "@/lib/owner";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { PauseManager } from "@/components/PauseManager";
+import { WeekNav } from "@/components/WeekNav";
 import { PROGRAM, DAY_KEYS, buildProgram, effectiveDays, getBlockIndex, todayISO } from "@/lib/program";
-import { GOAL_TARGET, GOAL_DEADLINE, countCompletedSessions } from "@/lib/goal";
+import { GOAL_TARGET, GOAL_DEADLINE, countCompletedSessions, getWeekCounts, getCurrentWeekIndex } from "@/lib/goal";
 
 export default function IronLog() {
   const supabase = useMemo(() => createClient(), []);
@@ -17,12 +18,14 @@ export default function IronLog() {
   const [toast, setToast] = useState("");
   const [toastType, setToastType] = useState("ok");
   const [profileError, setProfileError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
     (async () => {
-      let { data: p } = await supabase.from("profile").select("*").eq("user_id", OWNER_ID).maybeSingle();
+      let { data: p, error: profileFetchError } = await supabase.from("profile").select("*").eq("user_id", OWNER_ID).maybeSingle();
+      if (profileFetchError) setProfileError(profileFetchError.message);
 
-      if (!p) {
+      if (!p && !profileFetchError) {
         const { data: created, error } = await supabase
           .from("profile")
           .insert({ user_id: OWNER_ID, start_date: todayISO(), paused_ranges: [], exercise_overrides: {} })
@@ -36,18 +39,22 @@ export default function IronLog() {
       }
       setProfile(p);
 
-      const { data: rows } = await supabase
+      const { data: rows, error: historyError } = await supabase
         .from("exercise_history")
         .select("exercise_id, date, sets, skipped")
         .eq("user_id", OWNER_ID)
         .order("date", { ascending: true });
 
-      const grouped = {};
-      for (const row of rows || []) {
-        if (!grouped[row.exercise_id]) grouped[row.exercise_id] = [];
-        grouped[row.exercise_id].push({ date: row.date, sets: row.sets, skipped: row.skipped });
+      if (historyError) {
+        setLoadError(historyError.message);
+      } else {
+        const grouped = {};
+        for (const row of rows || []) {
+          if (!grouped[row.exercise_id]) grouped[row.exercise_id] = [];
+          grouped[row.exercise_id].push({ date: row.date, sets: row.sets, skipped: row.skipped });
+        }
+        setHistory(grouped);
       }
-      setHistory(grouped);
       setLoading(false);
     })();
   }, [supabase]);
@@ -136,6 +143,8 @@ export default function IronLog() {
   const completedSessions = countCompletedSessions(history);
   const goalPct = Math.min(100, Math.round((completedSessions / GOAL_TARGET) * 100));
   const goalDeadlineLabel = new Date(GOAL_DEADLINE + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const weekCounts = getWeekCounts(startDate, pausedRanges, history);
+  const currentWeek = getCurrentWeekIndex(startDate, pausedRanges);
 
   return (
     <div style={{ background: "#121110", minHeight: "100vh", fontFamily: "system-ui, -apple-system, sans-serif" }}>
@@ -147,6 +156,14 @@ export default function IronLog() {
         <div style={{ fontSize: 11, color: "#7FA8C9", fontFamily: "ui-monospace, monospace", marginBottom: 12 }}>
           Block {blockIndex + 1} · next accessory rotation in {daysUntilNextBlock}d
         </div>
+
+        {loadError && (
+          <div style={{ background: "#332018", border: "1px solid #D97D75", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "#D97D75" }}>
+            ⚠ Couldn&apos;t load your training history ({loadError}). Your logged data is safe in the database — this is just a display problem. Try reloading the page.
+          </div>
+        )}
+
+        <WeekNav weekCounts={weekCounts} currentWeek={currentWeek} />
 
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontFamily: "ui-monospace, monospace", color: "#9A958D", marginBottom: 4 }}>
