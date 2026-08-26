@@ -7,7 +7,8 @@ create table if not exists profile (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique,
   start_date date not null default current_date,
-  paused_ranges jsonb not null default '[]'::jsonb
+  paused_ranges jsonb not null default '[]'::jsonb,
+  exercise_overrides jsonb not null default '{}'::jsonb -- {slotId: catalogExerciseId}, persists a "change exercise" swap
 );
 
 create table if not exists exercise_history (
@@ -15,7 +16,8 @@ create table if not exists exercise_history (
   user_id uuid not null,
   exercise_id text not null,
   date date not null default current_date,
-  sets jsonb not null, -- [{weight: number, reps: number}, ...]
+  sets jsonb not null, -- [{weight: number, reps: number}, ...], empty when skipped
+  skipped boolean not null default false,
   created_at timestamptz default now()
 );
 

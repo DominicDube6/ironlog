@@ -25,7 +25,7 @@ export default function IronLog() {
       if (!p) {
         const { data: created, error } = await supabase
           .from("profile")
-          .insert({ user_id: OWNER_ID, start_date: todayISO(), paused_ranges: [] })
+          .insert({ user_id: OWNER_ID, start_date: todayISO(), paused_ranges: [], exercise_overrides: {} })
           .select()
           .single();
         if (error) {
@@ -38,14 +38,14 @@ export default function IronLog() {
 
       const { data: rows } = await supabase
         .from("exercise_history")
-        .select("exercise_id, date, sets")
+        .select("exercise_id, date, sets, skipped")
         .eq("user_id", OWNER_ID)
         .order("date", { ascending: true });
 
       const grouped = {};
       for (const row of rows || []) {
         if (!grouped[row.exercise_id]) grouped[row.exercise_id] = [];
-        grouped[row.exercise_id].push({ date: row.date, sets: row.sets });
+        grouped[row.exercise_id].push({ date: row.date, sets: row.sets, skipped: row.skipped });
       }
       setHistory(grouped);
       setLoading(false);
@@ -56,13 +56,18 @@ export default function IronLog() {
     setProfile(p);
     const { error } = await supabase
       .from("profile")
-      .update({ start_date: p.startDate ?? p.start_date, paused_ranges: p.pausedRanges ?? p.paused_ranges })
+      .update({
+        start_date: p.startDate ?? p.start_date,
+        paused_ranges: p.pausedRanges ?? p.paused_ranges,
+        exercise_overrides: p.exerciseOverrides ?? p.exercise_overrides,
+      })
       .eq("user_id", OWNER_ID);
     setProfileError(error ? error.message : null);
   };
 
   const pausedRanges = profile?.paused_ranges ?? profile?.pausedRanges ?? [];
   const startDate = profile?.start_date ?? profile?.startDate;
+  const exerciseOverrides = profile?.exercise_overrides ?? profile?.exerciseOverrides ?? {};
 
   const handleAddPause = async (label, start, end) => {
     const updated = { ...profile, paused_ranges: [...pausedRanges, { label, start, end }] };
@@ -74,18 +79,24 @@ export default function IronLog() {
     await persistProfile(updated);
   };
 
-  const handleSaveExercise = useCallback(
-    async (exId, sets) => {
+  const handleChangeExercise = async (slotId, newExerciseId) => {
+    const updated = { ...profile, exercise_overrides: { ...exerciseOverrides, [slotId]: newExerciseId } };
+    await persistProfile(updated);
+  };
+
+  const logToHistory = useCallback(
+    async (exId, sets, skipped) => {
       const date = todayISO();
       const { error } = await supabase.from("exercise_history").insert({
         user_id: OWNER_ID,
         exercise_id: exId,
         date,
         sets,
+        skipped,
       });
       if (!error) {
         const before = countCompletedSessions(history);
-        const updated = { ...history, [exId]: [...(history[exId] || []), { date, sets }] };
+        const updated = { ...history, [exId]: [...(history[exId] || []), { date, sets, skipped }] };
         const after = countCompletedSessions(updated);
         setHistory(updated);
 
@@ -95,7 +106,7 @@ export default function IronLog() {
           setToast(`Session complete — ${after}/${GOAL_TARGET} (${pct}%) toward your goal`);
         } else {
           setToastType("ok");
-          setToast("Session logged ✓");
+          setToast(skipped ? "Exercise skipped" : "Session logged ✓");
         }
       } else {
         setToastType("error");
@@ -106,6 +117,9 @@ export default function IronLog() {
     [supabase, history]
   );
 
+  const handleSaveExercise = useCallback((exId, sets) => logToHistory(exId, sets, false), [logToHistory]);
+  const handleSkipExercise = useCallback((exId) => logToHistory(exId, [], true), [logToHistory]);
+
   if (loading) {
     return (
       <div style={{ background: "#121110", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#6E6A63" }}>
@@ -115,7 +129,7 @@ export default function IronLog() {
   }
 
   const blockIndex = startDate ? getBlockIndex(startDate, pausedRanges) : 0;
-  const program = buildProgram(blockIndex);
+  const program = buildProgram(blockIndex, exerciseOverrides);
   const effDays = startDate ? effectiveDays(startDate, pausedRanges) : 0;
   const daysUntilNextBlock = 28 - (effDays % 28);
 
@@ -172,7 +186,14 @@ export default function IronLog() {
         </div>
 
         {program[day].exercises.map((ex) => (
-          <ExerciseCard key={ex.id} ex={ex} history={history} onSave={handleSaveExercise} />
+          <ExerciseCard
+            key={ex.slotId}
+            ex={ex}
+            history={history}
+            onSave={handleSaveExercise}
+            onSkip={handleSkipExercise}
+            onChangeExercise={handleChangeExercise}
+          />
         ))}
       </div>
 

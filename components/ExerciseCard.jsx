@@ -1,19 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, Repeat } from "lucide-react";
 import { PatternIcon } from "./StickFigure";
 import { PlateBar } from "./PlateBar";
-import { suggestNext, fmtDate } from "@/lib/program";
+import { suggestNext, fmtDate, EXERCISE_CATALOG } from "@/lib/program";
 
-export function ExerciseCard({ ex, history, onSave }) {
+const CATALOG_OPTIONS = Object.values(EXERCISE_CATALOG).sort((a, b) => a.name.localeCompare(b.name));
+
+export function ExerciseCard({ ex, history, onSave, onSkip, onChangeExercise }) {
   const suggestion = suggestNext(history, ex);
   const [rows, setRows] = useState(
     Array.from({ length: ex.sets }, () => ({ weight: suggestion.weight ?? "", reps: "" }))
   );
   const [open, setOpen] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
+  const [showSwap, setShowSwap] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [skipping, setSkipping] = useState(false);
 
   const updateRow = (i, field, val) => {
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: val } : row)));
@@ -26,6 +30,12 @@ export function ExerciseCard({ ex, history, onSave }) {
     setSaving(true);
     await onSave(ex.id, sets);
     setSaving(false);
+  };
+
+  const handleSkip = async () => {
+    setSkipping(true);
+    await onSkip(ex.id);
+    setSkipping(false);
   };
 
   const sessions = history[ex.id] || [];
@@ -47,12 +57,49 @@ export function ExerciseCard({ ex, history, onSave }) {
             >
               <HelpCircle size={16} color={showHowTo ? "#C9A227" : "#6E6A63"} />
             </button>
+            <button
+              onClick={() => setShowSwap((o) => !o)}
+              aria-label="Change exercise"
+              style={{ background: "none", border: "none", padding: 2, display: "flex", alignItems: "center" }}
+            >
+              <Repeat size={14} color={showSwap ? "#C9A227" : "#6E6A63"} />
+            </button>
           </div>
         </div>
         <button onClick={() => setOpen((o) => !o)} style={{ background: "none", border: "none", color: "#7FA8C9", fontSize: 12, fontWeight: 700 }}>
           {open ? "CLOSE" : "HISTORY"}
         </button>
       </div>
+
+      {showSwap && (
+        <div style={{ background: "#141210", border: "1px solid #2E2B27", borderRadius: 8, padding: "10px 12px", margin: "8px 0" }}>
+          <div style={{ fontSize: 11, color: "#9A958D", marginBottom: 6 }}>
+            Swap this slot for another exercise — applies today and every future week.
+          </div>
+          <select
+            value={ex.id}
+            onChange={(e) => {
+              onChangeExercise(ex.slotId, e.target.value);
+              setShowSwap(false);
+            }}
+            style={{
+              width: "100%",
+              background: "#121110",
+              border: "1px solid #2E2B27",
+              borderRadius: 6,
+              padding: "8px 10px",
+              color: "#EDEAE3",
+              fontSize: 13,
+            }}
+          >
+            {CATALOG_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.name} ({opt.cat})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {showHowTo && (
         <div style={{ background: "#141210", border: "1px solid #2E2B27", borderRadius: 8, padding: "10px 12px", margin: "8px 0" }}>
@@ -133,25 +180,43 @@ export function ExerciseCard({ ex, history, onSave }) {
         </div>
       ))}
 
-      <button
-        onClick={handleSave}
-        disabled={!canSave}
-        style={{
-          width: "100%",
-          marginTop: 6,
-          padding: "10px 0",
-          borderRadius: 8,
-          border: "none",
-          background: canSave ? "#B5453B" : "#2E2B27",
-          color: canSave ? "#EDEAE3" : "#6E6A63",
-          fontWeight: 800,
-          letterSpacing: 0.5,
-          textTransform: "uppercase",
-          fontSize: 13,
-        }}
-      >
-        {saving ? "..." : "Log Session"}
-      </button>
+      <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+        <button
+          onClick={handleSave}
+          disabled={!canSave}
+          style={{
+            flex: 1,
+            padding: "10px 0",
+            borderRadius: 8,
+            border: "none",
+            background: canSave ? "#B5453B" : "#2E2B27",
+            color: canSave ? "#EDEAE3" : "#6E6A63",
+            fontWeight: 800,
+            letterSpacing: 0.5,
+            textTransform: "uppercase",
+            fontSize: 13,
+          }}
+        >
+          {saving ? "..." : "Log Session"}
+        </button>
+        <button
+          onClick={handleSkip}
+          disabled={skipping}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 8,
+            border: "1px solid #2E2B27",
+            background: "none",
+            color: "#6E6A63",
+            fontWeight: 800,
+            letterSpacing: 0.5,
+            textTransform: "uppercase",
+            fontSize: 13,
+          }}
+        >
+          {skipping ? "..." : "Skip"}
+        </button>
+      </div>
 
       {open && (
         <div style={{ marginTop: 10, borderTop: "1px solid #2E2B27", paddingTop: 8 }}>
@@ -160,8 +225,8 @@ export function ExerciseCard({ ex, history, onSave }) {
             .slice(-5)
             .reverse()
             .map((s, i) => (
-              <div key={i} style={{ fontSize: 12, color: "#9A958D", fontFamily: "ui-monospace, monospace", marginBottom: 4 }}>
-                {fmtDate(s.date)} — {s.sets.map((st) => `${st.weight}×${st.reps}`).join(", ")}
+              <div key={i} style={{ fontSize: 12, color: s.skipped ? "#6E6A63" : "#9A958D", fontFamily: "ui-monospace, monospace", marginBottom: 4 }}>
+                {fmtDate(s.date)} — {s.skipped ? "Skipped" : s.sets.map((st) => `${st.weight}×${st.reps}`).join(", ")}
               </div>
             ))}
         </div>
