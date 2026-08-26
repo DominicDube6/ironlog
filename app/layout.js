@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "Iron Log",
-  description: "Suivi d'entraînement full body 4x/semaine — poids, reps, progression.",
+  description: "Full body 4x/week training tracker — weights, reps, progression.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
@@ -32,7 +32,7 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html
-      lang="fr"
+      lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>

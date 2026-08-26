@@ -42,7 +42,7 @@ export function ExerciseCard({ ex, history, onSave }) {
             <span style={{ fontSize: 18, fontWeight: 800, color: "#EDEAE3", letterSpacing: -0.3 }}>{ex.name}</span>
             <button
               onClick={() => setShowHowTo((o) => !o)}
-              aria-label="Comment faire cet exercice"
+              aria-label="How to do this exercise"
               style={{ background: "none", border: "none", padding: 2, display: "flex", alignItems: "center" }}
             >
               <HelpCircle size={16} color={showHowTo ? "#C9A227" : "#6E6A63"} />
@@ -50,7 +50,7 @@ export function ExerciseCard({ ex, history, onSave }) {
           </div>
         </div>
         <button onClick={() => setOpen((o) => !o)} style={{ background: "none", border: "none", color: "#7FA8C9", fontSize: 12, fontWeight: 700 }}>
-          {open ? "FERMER" : "HISTORIQUE"}
+          {open ? "CLOSE" : "HISTORY"}
         </button>
       </div>
 
@@ -135,12 +135,12 @@ export function ExerciseCard({ ex, history, onSave }) {
           fontSize: 13,
         }}
       >
-        {saving ? "..." : "Logger la séance"}
+        {saving ? "..." : "Log Session"}
       </button>
 
       {open && (
         <div style={{ marginTop: 10, borderTop: "1px solid #2E2B27", paddingTop: 8 }}>
-          {sessions.length === 0 && <div style={{ fontSize: 12, color: "#6E6A63" }}>Aucune séance loggée encore.</div>}
+          {sessions.length === 0 && <div style={{ fontSize: 12, color: "#6E6A63" }}>No sessions logged yet.</div>}
           {sessions
             .slice(-5)
             .reverse()

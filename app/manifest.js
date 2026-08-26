@@ -2,7 +2,7 @@ export default function manifest() {
   return {
     name: "Iron Log",
     short_name: "Iron Log",
-    description: "Suivi d'entraînement full body 4x/semaine",
+    description: "Full body 4x/week training tracker",
     start_url: "/",
     display: "standalone",
     background_color: "#121110",
