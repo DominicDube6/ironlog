@@ -4,17 +4,19 @@ import { useState, useRef } from "react";
 import { HelpCircle, Repeat } from "lucide-react";
 import { PatternIcon } from "./StickFigure";
 import { PlateBar } from "./PlateBar";
-import { suggestNext, fmtDate, EXERCISE_CATALOG } from "@/lib/program";
+import { suggestNext, fmtDate, deloadTarget, EXERCISE_CATALOG } from "@/lib/program";
 
 const CATALOG_OPTIONS = Object.values(EXERCISE_CATALOG).sort((a, b) => a.name.localeCompare(b.name));
 
-export function ExerciseCard({ ex, history, todayEntry, onSave, onSkip, onChangeExercise }) {
+export function ExerciseCard({ ex, history, deload = false, todayEntry, onSave, onSkip, onChangeExercise }) {
   const loggedToday = !!todayEntry && !todayEntry.skipped;
   const skippedToday = !!todayEntry && todayEntry.skipped;
   const busy = useRef(false);
-  const suggestion = suggestNext(history, ex);
+  const suggestion = suggestNext(history, ex, { deload });
+  const target = deload ? deloadTarget(ex) : null;
+  const setCount = target ? target.sets : ex.sets;
   const [rows, setRows] = useState(
-    Array.from({ length: ex.sets }, () => ({ weight: suggestion.weight ?? "", reps: "" }))
+    Array.from({ length: setCount }, () => ({ weight: suggestion.weight ?? "", reps: "" }))
   );
   const [open, setOpen] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
@@ -152,7 +154,7 @@ export function ExerciseCard({ ex, history, todayEntry, onSave, onSkip, onChange
           marginBottom: 10,
         }}
       >
-        {ex.sets}×{ex.repMin}-{ex.repMax} · {suggestion.note}
+        {target ? `${target.sets}×${target.reps}` : `${ex.sets}×${ex.repMin}-${ex.repMax}`} · {suggestion.note}
       </div>
 
       {loggedToday && (
@@ -259,7 +261,7 @@ export function ExerciseCard({ ex, history, todayEntry, onSave, onSkip, onChange
             .reverse()
             .map((s, i) => (
               <div key={i} style={{ fontSize: 12, color: s.skipped ? "#6E6A63" : "#9A958D", fontFamily: "ui-monospace, monospace", marginBottom: 4 }}>
-                {fmtDate(s.date)} — {s.skipped ? "Skipped" : s.sets.map((st) => `${st.weight}×${st.reps}`).join(", ")}
+                {fmtDate(s.date)} — {s.skipped ? "Skipped" : s.sets.map((st) => `${st.weight}×${st.reps}`).join(", ")}{s.deload ? " (deload)" : ""}
               </div>
             ))}
         </div>

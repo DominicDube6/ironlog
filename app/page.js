@@ -6,8 +6,9 @@ import { OWNER_ID } from "@/lib/owner";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { PauseManager } from "@/components/PauseManager";
 import { WeekNav } from "@/components/WeekNav";
-import { PROGRAM, DAY_KEYS, buildProgram, effectiveDays, getBlockIndex, todayISO } from "@/lib/program";
-import { GOAL_TARGET, GOAL_DEADLINE, countCompletedSessions, getWeekCounts, getCurrentWeekIndex } from "@/lib/goal";
+import { CycleStart } from "@/components/CycleStart";
+import { PROGRAM, DAY_KEYS, TRAIN_WEEKS, buildProgram, getBlockIndex, getCyclePosition, isDeloadDate, todayISO } from "@/lib/program";
+import { GOAL_TARGET, countCompletedSessions, getCompletedSessionDates, getWeekCounts, getCurrentWeekIndex, planEndDate } from "@/lib/goal";
 
 export default function IronLog() {
   const supabase = useMemo(() => createClient(), []);
@@ -144,13 +145,17 @@ export default function IronLog() {
         return;
       }
       if (!error) {
-        const before = countCompletedSessions(history);
         const others = (history[exId] || []).filter((s) => s.date !== date);
         const updated = { ...history, [exId]: [...others, { date, sets, skipped }] };
-        const after = countCompletedSessions(updated);
+        const justCompleted =
+          getCompletedSessionDates(updated, startDate).length > getCompletedSessionDates(history, startDate).length;
         setHistory(updated);
 
-        if (after > before) {
+        if (justCompleted && isDeloadDate(startDate, pausedRanges, date)) {
+          setToastType("ok");
+          setToast("Deload session complete ✓");
+        } else if (justCompleted) {
+          const after = countCompletedSessions(updated, startDate, pausedRanges);
           const pct = Math.round((after / GOAL_TARGET) * 100);
           setToastType("goal");
           setToast(`Session complete — ${after}/${GOAL_TARGET} (${pct}%) toward your goal`);
@@ -164,11 +169,25 @@ export default function IronLog() {
       }
       setTimeout(() => setToast(""), 2500);
     },
-    [supabase, history]
+    [supabase, history, startDate, pausedRanges]
   );
 
   const handleSaveExercise = useCallback((exId, sets) => logToHistory(exId, sets, false), [logToHistory]);
   const handleSkipExercise = useCallback((exId) => logToHistory(exId, [], true), [logToHistory]);
+
+  const handleChangeStart = async (date) => {
+    await persistProfile({ ...profile, start_date: date });
+  };
+
+  // Tag deload-week sessions so suggestNext keeps them out of progression.
+  // Derived (not stored), so moving the cycle start re-tags everything.
+  const taggedHistory = useMemo(() => {
+    const out = {};
+    for (const [exId, sessions] of Object.entries(history)) {
+      out[exId] = sessions.map((s) => ({ ...s, deload: isDeloadDate(startDate, pausedRanges, s.date) }));
+    }
+    return out;
+  }, [history, startDate, pausedRanges]);
 
   if (loading) {
     return (
@@ -180,12 +199,15 @@ export default function IronLog() {
 
   const blockIndex = startDate ? getBlockIndex(startDate, pausedRanges) : 0;
   const program = buildProgram(blockIndex, exerciseOverrides);
-  const effDays = startDate ? effectiveDays(startDate, pausedRanges) : 0;
-  const daysUntilNextBlock = 28 - (effDays % 28);
+  const cyclePos = startDate ? getCyclePosition(startDate, pausedRanges) : { cycle: 0, week: 0, isDeload: false, daysUntilNextCycle: 0 };
+  const isDeload = cyclePos.isDeload;
 
-  const completedSessions = countCompletedSessions(history);
+  const completedSessions = countCompletedSessions(history, startDate, pausedRanges);
   const goalPct = Math.min(100, Math.round((completedSessions / GOAL_TARGET) * 100));
-  const goalDeadlineLabel = new Date(GOAL_DEADLINE + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const endDate = planEndDate(startDate, pausedRanges);
+  const goalDeadlineLabel = endDate
+    ? new Date(endDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : "—";
   const weekCounts = getWeekCounts(startDate, pausedRanges, history);
   const currentWeek = getCurrentWeekIndex(startDate, pausedRanges);
 
@@ -197,8 +219,14 @@ export default function IronLog() {
           <div style={{ fontSize: 11, color: "#6E6A63", fontFamily: "ui-monospace, monospace" }}>Full body · 4x/week</div>
         </div>
         <div style={{ fontSize: 11, color: "#7FA8C9", fontFamily: "ui-monospace, monospace", marginBottom: 12 }}>
-          Block {blockIndex + 1} · next accessory rotation in {daysUntilNextBlock}d
+          Cycle {cyclePos.cycle + 1} · {isDeload ? "Deload week" : `Week ${cyclePos.week + 1} of ${TRAIN_WEEKS}`} · variations rotate in {cyclePos.daysUntilNextCycle}d
         </div>
+
+        {isDeload && (
+          <div style={{ background: "#16222B", border: "1px solid #3F6A8A", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "#7FA8C9" }}>
+            Deload week — weights ~85%, one fewer set, bottom of the rep range, 3+ reps in the tank. Your working weights come back next week.
+          </div>
+        )}
 
         {loadError && (
           <div style={{ background: "#332018", border: "1px solid #D97D75", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "#D97D75" }}>
@@ -217,6 +245,8 @@ export default function IronLog() {
             <div style={{ height: "100%", width: `${goalPct}%`, background: "#C9A227", borderRadius: 3 }} />
           </div>
         </div>
+
+        <CycleStart key={startDate} startDate={startDate} onChange={handleChangeStart} />
 
         <PauseManager pausedRanges={pausedRanges} onAdd={handleAddPause} onRemove={handleRemovePause} />
 
@@ -249,7 +279,8 @@ export default function IronLog() {
           <ExerciseCard
             key={ex.slotId}
             ex={ex}
-            history={history}
+            history={taggedHistory}
+            deload={isDeload}
             todayEntry={(history[ex.id] || []).find((s) => s.date === todayISO())}
             onSave={handleSaveExercise}
             onSkip={handleSkipExercise}
