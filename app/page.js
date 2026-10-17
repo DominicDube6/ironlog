@@ -21,7 +21,7 @@ export default function IronLog() {
   const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
-    (async () => {
+    const load = async () => {
       let { data: p, error: profileFetchError } = await supabase.from("profile").select("*").eq("user_id", OWNER_ID).maybeSingle();
       if (profileFetchError) setProfileError(profileFetchError.message);
 
@@ -55,8 +55,16 @@ export default function IronLog() {
         }
         setHistory(grouped);
       }
-      setLoading(false);
-    })();
+    };
+
+    // Never hang on "Loading..." — if the database is unreachable (e.g. a free
+    // Supabase project that got paused for inactivity), say so after 10s.
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("database not responding — it may be paused")), 10000)
+    );
+    Promise.race([load(), timeout])
+      .catch((e) => setLoadError(e?.message || "network error"))
+      .finally(() => setLoading(false));
   }, [supabase]);
 
   const persistProfile = async (p) => {
@@ -159,7 +167,7 @@ export default function IronLog() {
 
         {loadError && (
           <div style={{ background: "#332018", border: "1px solid #D97D75", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "#D97D75" }}>
-            ⚠ Couldn&apos;t load your training history ({loadError}). Your logged data is safe in the database — this is just a display problem. Try reloading the page.
+            ⚠ Couldn&apos;t load your training history ({loadError}). Don&apos;t log anything yet — it won&apos;t save. If this keeps happening, check that your Supabase project isn&apos;t paused (supabase.com/dashboard → Restore project).
           </div>
         )}
 
