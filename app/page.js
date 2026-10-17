@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { OWNER_ID } from "@/lib/owner";
 import { ExerciseCard } from "@/components/ExerciseCard";
@@ -19,6 +19,7 @@ export default function IronLog() {
   const [toastType, setToastType] = useState("ok");
   const [profileError, setProfileError] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  const inFlight = useRef(new Set());
 
   useEffect(() => {
     const load = async () => {
@@ -99,19 +100,53 @@ export default function IronLog() {
     await persistProfile(updated);
   };
 
+  const flash = (type, message) => {
+    setToastType(type);
+    setToast(message);
+    setTimeout(() => setToast(""), 2500);
+  };
+
   const logToHistory = useCallback(
     async (exId, sets, skipped) => {
+      // One entry per exercise per day. The ref blocks a fast double-tap that
+      // fires twice before React has re-rendered the button as disabled.
+      if (inFlight.current.has(exId)) return;
       const date = todayISO();
-      const { error } = await supabase.from("exercise_history").insert({
-        user_id: OWNER_ID,
-        exercise_id: exId,
-        date,
-        sets,
-        skipped,
-      });
+      const existing = (history[exId] || []).find((s) => s.date === date);
+      if (existing && (!existing.skipped || skipped)) {
+        flash("error", existing.skipped ? "Already skipped today" : "Already logged today");
+        return;
+      }
+
+      inFlight.current.add(exId);
+      let error;
+      if (existing) {
+        // Skipped earlier today, now logging it for real: replace the skip.
+        ({ error } = await supabase
+          .from("exercise_history")
+          .update({ sets, skipped: false })
+          .eq("user_id", OWNER_ID)
+          .eq("exercise_id", exId)
+          .eq("date", date));
+      } else {
+        ({ error } = await supabase.from("exercise_history").insert({
+          user_id: OWNER_ID,
+          exercise_id: exId,
+          date,
+          sets,
+          skipped,
+        }));
+      }
+      inFlight.current.delete(exId);
+
+      if (error?.code === "23505") {
+        flash("error", "Already logged today");
+        return;
+      }
       if (!error) {
         const before = countCompletedSessions(history);
-        const updated = { ...history, [exId]: [...(history[exId] || []), { date, sets, skipped }] };
+        const others = (history[exId] || []).filter((s) => s.date !== date);
+        const updated = { ...history, [exId]: [...others, { date, sets, skipped }] };
         const after = countCompletedSessions(updated);
         setHistory(updated);
 
@@ -215,6 +250,7 @@ export default function IronLog() {
             key={ex.slotId}
             ex={ex}
             history={history}
+            todayEntry={(history[ex.id] || []).find((s) => s.date === todayISO())}
             onSave={handleSaveExercise}
             onSkip={handleSkipExercise}
             onChangeExercise={handleChangeExercise}

@@ -24,6 +24,11 @@ create table if not exists exercise_history (
 create index if not exists exercise_history_user_exercise_idx
   on exercise_history (user_id, exercise_id, date);
 
+-- One entry per exercise per day, enforced by the database so a double-tap
+-- can never save twice. (On an existing DB, de-duplicate first — see README.)
+create unique index if not exists exercise_history_one_per_day
+  on exercise_history (user_id, exercise_id, date);
+
 alter table profile enable row level security;
 alter table exercise_history enable row level security;
 

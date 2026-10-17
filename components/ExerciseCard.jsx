@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { HelpCircle, Repeat } from "lucide-react";
 import { PatternIcon } from "./StickFigure";
 import { PlateBar } from "./PlateBar";
@@ -8,7 +8,10 @@ import { suggestNext, fmtDate, EXERCISE_CATALOG } from "@/lib/program";
 
 const CATALOG_OPTIONS = Object.values(EXERCISE_CATALOG).sort((a, b) => a.name.localeCompare(b.name));
 
-export function ExerciseCard({ ex, history, onSave, onSkip, onChangeExercise }) {
+export function ExerciseCard({ ex, history, todayEntry, onSave, onSkip, onChangeExercise }) {
+  const loggedToday = !!todayEntry && !todayEntry.skipped;
+  const skippedToday = !!todayEntry && todayEntry.skipped;
+  const busy = useRef(false);
   const suggestion = suggestNext(history, ex);
   const [rows, setRows] = useState(
     Array.from({ length: ex.sets }, () => ({ weight: suggestion.weight ?? "", reps: "" }))
@@ -23,19 +26,31 @@ export function ExerciseCard({ ex, history, onSave, onSkip, onChangeExercise }) 
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: val } : row)));
   };
 
-  const canSave = rows.every((r) => r.weight !== "" && r.reps !== "") && !saving;
+  const canSave = rows.every((r) => r.weight !== "" && r.reps !== "") && !saving && !loggedToday;
 
   const handleSave = async () => {
+    if (busy.current || loggedToday) return;
+    busy.current = true;
     const sets = rows.map((r) => ({ weight: Number(r.weight), reps: Number(r.reps) }));
     setSaving(true);
-    await onSave(ex.id, sets);
-    setSaving(false);
+    try {
+      await onSave(ex.id, sets);
+    } finally {
+      setSaving(false);
+      busy.current = false;
+    }
   };
 
   const handleSkip = async () => {
+    if (busy.current || todayEntry) return;
+    busy.current = true;
     setSkipping(true);
-    await onSkip(ex.id);
-    setSkipping(false);
+    try {
+      await onSkip(ex.id);
+    } finally {
+      setSkipping(false);
+      busy.current = false;
+    }
   };
 
   const sessions = history[ex.id] || [];
@@ -140,7 +155,24 @@ export function ExerciseCard({ ex, history, onSave, onSkip, onChangeExercise }) 
         {ex.sets}×{ex.repMin}-{ex.repMax} · {suggestion.note}
       </div>
 
-      {rows.map((row, i) => (
+      {loggedToday && (
+        <div style={{ background: "#1F2A22", border: "1px solid #2F4A36", borderRadius: 8, padding: "10px 12px", marginTop: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#7BC48F", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Logged today ✓
+          </div>
+          <div style={{ fontSize: 12, color: "#9A958D", fontFamily: "ui-monospace, monospace" }}>
+            {todayEntry.sets.map((st) => `${st.weight}×${st.reps}`).join(", ")}
+          </div>
+        </div>
+      )}
+
+      {skippedToday && (
+        <div style={{ fontSize: 11, color: "#6E6A63", fontFamily: "ui-monospace, monospace", marginBottom: 8 }}>
+          Skipped today — log it below if you did it after all.
+        </div>
+      )}
+
+      {!loggedToday && rows.map((row, i) => (
         <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
           <span style={{ width: 18, fontSize: 12, color: "#6E6A63", fontFamily: "ui-monospace, monospace" }}>{i + 1}</span>
           <input
@@ -180,7 +212,7 @@ export function ExerciseCard({ ex, history, onSave, onSkip, onChangeExercise }) 
         </div>
       ))}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+      {!loggedToday && <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
         <button
           onClick={handleSave}
           disabled={!canSave}
@@ -201,13 +233,14 @@ export function ExerciseCard({ ex, history, onSave, onSkip, onChangeExercise }) 
         </button>
         <button
           onClick={handleSkip}
-          disabled={skipping}
+          disabled={skipping || !!todayEntry}
           style={{
             padding: "10px 14px",
             borderRadius: 8,
             border: "1px solid #2E2B27",
             background: "none",
             color: "#6E6A63",
+            opacity: todayEntry ? 0.4 : 1,
             fontWeight: 800,
             letterSpacing: 0.5,
             textTransform: "uppercase",
@@ -216,7 +249,7 @@ export function ExerciseCard({ ex, history, onSave, onSkip, onChangeExercise }) 
         >
           {skipping ? "..." : "Skip"}
         </button>
-      </div>
+      </div>}
 
       {open && (
         <div style={{ marginTop: 10, borderTop: "1px solid #2E2B27", paddingTop: 8 }}>
