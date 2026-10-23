@@ -185,6 +185,8 @@ export function ExerciseCard({ ex, history, deload = false, todayEntry, onSave, 
             onChange={(e) => updateRow(i, "weight", e.target.value)}
             style={{
               flex: 1,
+              minWidth: 0,
+              width: "100%",
               background: "#121110",
               border: "1px solid #2E2B27",
               borderRadius: 6,
@@ -202,6 +204,8 @@ export function ExerciseCard({ ex, history, deload = false, todayEntry, onSave, 
             onChange={(e) => updateRow(i, "reps", e.target.value)}
             style={{
               flex: 1,
+              minWidth: 0,
+              width: "100%",
               background: "#121110",
               border: "1px solid #2E2B27",
               borderRadius: 6,

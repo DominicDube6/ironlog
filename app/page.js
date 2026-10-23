@@ -21,53 +21,90 @@ export default function IronLog() {
   const [profileError, setProfileError] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const inFlight = useRef(new Set());
+  const loadedOn = useRef(null); // local date the history was last fetched
+  const hiddenAt = useRef(null);
+
+  const load = useCallback(async () => {
+    let { data: p, error: profileFetchError } = await supabase.from("profile").select("*").eq("user_id", OWNER_ID).maybeSingle();
+    if (profileFetchError) {
+      setProfileError(profileFetchError.message);
+      throw new Error(profileFetchError.message);
+    }
+
+    if (!p) {
+      const { data: created, error } = await supabase
+        .from("profile")
+        .insert({ user_id: OWNER_ID, start_date: todayISO(), paused_ranges: [], exercise_overrides: {} })
+        .select()
+        .single();
+      if (error) {
+        setProfileError(error.message);
+      } else {
+        p = created;
+      }
+    }
+    setProfile(p);
+
+    const { data: rows, error: historyError } = await supabase
+      .from("exercise_history")
+      .select("exercise_id, date, sets, skipped")
+      .eq("user_id", OWNER_ID)
+      .order("date", { ascending: true });
+
+    if (historyError) throw new Error(historyError.message);
+
+    const grouped = {};
+    for (const row of rows || []) {
+      if (!grouped[row.exercise_id]) grouped[row.exercise_id] = [];
+      grouped[row.exercise_id].push({ date: row.date, sets: row.sets, skipped: row.skipped });
+    }
+    setHistory(grouped);
+    setLoadError(null);
+    loadedOn.current = todayISO();
+  }, [supabase]);
 
   useEffect(() => {
-    const load = async () => {
-      let { data: p, error: profileFetchError } = await supabase.from("profile").select("*").eq("user_id", OWNER_ID).maybeSingle();
-      if (profileFetchError) setProfileError(profileFetchError.message);
-
-      if (!p && !profileFetchError) {
-        const { data: created, error } = await supabase
-          .from("profile")
-          .insert({ user_id: OWNER_ID, start_date: todayISO(), paused_ranges: [], exercise_overrides: {} })
-          .select()
-          .single();
-        if (error) {
-          setProfileError(error.message);
-        } else {
-          p = created;
-        }
-      }
-      setProfile(p);
-
-      const { data: rows, error: historyError } = await supabase
-        .from("exercise_history")
-        .select("exercise_id, date, sets, skipped")
-        .eq("user_id", OWNER_ID)
-        .order("date", { ascending: true });
-
-      if (historyError) {
-        setLoadError(historyError.message);
-      } else {
-        const grouped = {};
-        for (const row of rows || []) {
-          if (!grouped[row.exercise_id]) grouped[row.exercise_id] = [];
-          grouped[row.exercise_id].push({ date: row.date, sets: row.sets, skipped: row.skipped });
-        }
-        setHistory(grouped);
-      }
-    };
-
     // Never hang on "Loading..." — if the database is unreachable (e.g. a free
     // Supabase project that got paused for inactivity), say so after 10s.
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("database not responding — it may be paused")), 10000)
-    );
-    Promise.race([load(), timeout])
-      .catch((e) => setLoadError(e?.message || "network error"))
-      .finally(() => setLoading(false));
-  }, [supabase]);
+    const initialLoad = async () => {
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("database not responding — it may be paused")), 10000)
+      );
+      try {
+        await Promise.race([load(), timeout]);
+      } catch (e) {
+        setLoadError(e?.message || "network error");
+      } finally {
+        setLoading(false);
+      }
+    };
+    initialLoad();
+  }, [load]);
+
+  // A phone keeps the app alive in the background for days. When it comes back
+  // after a long pause, or on a new calendar day, the on-screen history is
+  // stale: "logged today" badges and suggestions are wrong and a save can fail
+  // silently. Re-fetch instead of trusting what was loaded last week.
+  useEffect(() => {
+    const REFRESH_AFTER_MS = 5 * 60 * 1000;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt.current = Date.now();
+        return;
+      }
+      const awayMs = hiddenAt.current ? Date.now() - hiddenAt.current : 0;
+      const dayChanged = loadedOn.current && loadedOn.current !== todayISO();
+      if (awayMs > REFRESH_AFTER_MS || dayChanged) {
+        load().catch((e) => setLoadError(e?.message || "network error"));
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onVisibility);
+    };
+  }, [load]);
 
   const persistProfile = async (p) => {
     setProfile(p);
@@ -121,24 +158,30 @@ export default function IronLog() {
 
       inFlight.current.add(exId);
       let error;
-      if (existing) {
-        // Skipped earlier today, now logging it for real: replace the skip.
-        ({ error } = await supabase
-          .from("exercise_history")
-          .update({ sets, skipped: false })
-          .eq("user_id", OWNER_ID)
-          .eq("exercise_id", exId)
-          .eq("date", date));
-      } else {
-        ({ error } = await supabase.from("exercise_history").insert({
-          user_id: OWNER_ID,
-          exercise_id: exId,
-          date,
-          sets,
-          skipped,
-        }));
+      try {
+        if (existing) {
+          // Skipped earlier today, now logging it for real: replace the skip.
+          ({ error } = await supabase
+            .from("exercise_history")
+            .update({ sets, skipped: false })
+            .eq("user_id", OWNER_ID)
+            .eq("exercise_id", exId)
+            .eq("date", date));
+        } else {
+          ({ error } = await supabase.from("exercise_history").insert({
+            user_id: OWNER_ID,
+            exercise_id: exId,
+            date,
+            sets,
+            skipped,
+          }));
+        }
+      } catch (e) {
+        // Network failure or the 15s request timeout: surface it, never lock the exercise.
+        error = { message: e?.name === "AbortError" ? "timed out — check your connection" : e?.message || "network error" };
+      } finally {
+        inFlight.current.delete(exId);
       }
-      inFlight.current.delete(exId);
 
       if (error?.code === "23505") {
         flash("error", "Already logged today");
@@ -165,9 +208,10 @@ export default function IronLog() {
         }
       } else {
         setToastType("error");
-        setToast(`⚠ Save failed (${error.message}) — try again`);
+        setToast(`⚠ Not saved (${error.message}) — try again`);
       }
-      setTimeout(() => setToast(""), 2500);
+      // Errors stay up long enough to actually be read.
+      setTimeout(() => setToast(""), error ? 6000 : 2500);
     },
     [supabase, history, startDate, pausedRanges]
   );
